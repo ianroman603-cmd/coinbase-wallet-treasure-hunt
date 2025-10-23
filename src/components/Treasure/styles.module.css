@@ -1,0 +1,11 @@
+.media video {
+  border-radius: 8px !important;
+}
+
+.media button {
+  display: none !important;
+}
+
+.media img {
+  border-radius: 8px !important;
+}
