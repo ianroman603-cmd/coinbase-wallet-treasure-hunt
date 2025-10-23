@@ -8,8 +8,13 @@ export const env = createEnv({
    */
   server: {
     NODE_ENV: z.enum(["development", "test", "production"]),
-    THIRDWEB_SECRET_KEY: z.string(),
-    ADMIN_PRIVATE_KEY: z.string(),
+    THIRDWEB_SECRET_KEY: z.string(),          // thirdweb Server key (secret)
+    ADMIN_PRIVATE_KEY: z.string(),            // payout wallet private key (0x...)
+    AIRDROP_CONTRACT: z.string(),             // 0x484e2d30ddd8798BC89451309342283d13326511
+    MOCHI_TOKEN: z.string(),                  // 0xf6e932ca12afa26665dc4dde7e27be02a7c02e50
+    MOCHI_PER_STICKER_TOKENS: z.string(),     // "20000000"
+    UPSTASH_REDIS_REST_URL: z.string().url(), // from Upstash
+    UPSTASH_REDIS_REST_TOKEN: z.string(),     // from Upstash
   },
 
   /**
