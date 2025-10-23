@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { SUPPORTED_CHAINS } from "~/constants/chains";
 
-import { createThirdwebClient, getContract, prepareContractCall, sendTransaction } from "thirdweb";
+import { createThirdwebClient, getContract, prepareContractCall, sendTransaction, readContract } from "thirdweb";
 import { privateKeyToAccount } from "thirdweb/wallets";
 import { env } from "~/env";
 
@@ -85,10 +85,17 @@ export const treasureRouter = createTRPCRouter({
         throw new Error("claimed or invalid");
       }
 
-      try {
+      try { 
         // Compute amount in base units using on-chain decimals
-        const token = getContract({ client, chain, address: env.MOCHI_TOKEN as `0x${string}`, abi: erc20Abi as any });
-        const decimals: number = await (token.read as any).decimals();
+        const token = getContract({ client, chain, address: env.MOCHI_TOKEN as `0x${string}` });
+        
+        const decimalsRaw = await readContract({
+          contract: token,
+  // method signature string avoids typing issues and works without a full ABI
+          method: "function decimals() view returns (uint8)",
+        });
+        const decimals = Number(decimalsRaw);
+        
         const human = BigInt(env.MOCHI_PER_STICKER_TOKENS); // "20000000"
         const amount = human * (10n ** BigInt(decimals));
 
