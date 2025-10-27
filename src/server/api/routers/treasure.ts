@@ -23,17 +23,24 @@ const redis = new Redis({
   token: env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-// Helpers for consistent keys
-const claimKey = (chainId: number, code: string) => `mochi:claim:${chainId}:${code}`;
-const txKey    = (chainId: number, code: string) => `mochi:tx:${chainId}:${code}`;
+// Key helpers
+const allowSetKey = (chainId: number) => `mochi:allow:${chainId}`;
+const claimKey    = (chainId: number, code: string) => `mochi:claim:${chainId}:${code}`;
+const txKey       = (chainId: number, code: string) => `mochi:tx:${chainId}:${code}`;
 
 export const treasureRouter = createTRPCRouter({
-  // For the Builder widget overlay
+  // Builder widget overlay: TRUE means “already claimed” (not claimable)
   getIsTreasureClaimed: publicProcedure
     .input(z.object({ chainId: z.number(), uniqueName: z.string(), amount: z.string() }))
     .query(async ({ input }) => {
-      const key = claimKey(input.chainId, input.uniqueName);
-      const exists = await redis.exists(key);
+      const { chainId, uniqueName } = input;
+
+      // Hide which codes are valid: if it's NOT on the allowlist, return true (looks claimed)
+      const isAllowed = await redis.sismember(allowSetKey(chainId), uniqueName);
+      if (isAllowed !== 1) return true;
+
+      // If allowed, check if claim key exists
+      const exists = await redis.exists(claimKey(chainId, uniqueName));
       return exists === 1;
     }),
 
@@ -41,7 +48,7 @@ export const treasureRouter = createTRPCRouter({
   claimTreasure: publicProcedure
     .input(
       z.object({
-        chainId: z.number(),       // should be 8453 (Base)
+        chainId: z.number(),       // 8453 (Base)
         uniqueName: z.string(),    // your per-sticker claim code
         amount: z.string(),        // ignored server-side; we use env.MOCHI_PER_STICKER_TOKENS
         recipient: z.string(),     // wallet address from Coinbase Wallet
@@ -52,16 +59,16 @@ export const treasureRouter = createTRPCRouter({
 
       // Validate the chain
       const chain: Chain | undefined = SUPPORTED_CHAINS.find((c) => c.id === chainId);
-      if (!chain) {
-        throw new Error("Unsupported chain");
-      }
+      if (!chain) throw new Error("Unsupported chain");
+
+      // Must be on allowlist
+      const isAllowed = await redis.sismember(allowSetKey(chainId), uniqueName);
+      if (isAllowed !== 1) throw new Error("invalid");
 
       // First-come-first-served lock (NX: set only if not exists)
       const key = claimKey(chainId, uniqueName);
       const locked = await redis.set<string>(key, recipient, { nx: true });
-      if (locked !== "OK") {
-        throw new Error("claimed or invalid");
-      }
+      if (locked !== "OK") throw new Error("claimed or invalid");
 
       try {
         // 1) Read ERC20 decimals
@@ -91,19 +98,17 @@ export const treasureRouter = createTRPCRouter({
         await redis.set(txKey(chainId, uniqueName), receipt.transactionHash);
         return receipt;
       } catch (err: unknown) {
-  // unlock so someone else can try again; ignore unlock failures
+        // unlock on failure so someone else can try again
         try {
           await redis.del(key);
         } catch (unlockErr) {
-    // keep logs out of production; this makes the block non-empty for eslint
           if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
+            // eslint-disable-next-line no-console
             console.warn("unlock failed:", unlockErr instanceof Error ? unlockErr.message : unlockErr);
-    }
-  }
-  const message = err instanceof Error ? err.message : "Transaction failed";
-  throw new Error(message);
-}
-
+          }
+        }
+        const message = err instanceof Error ? err.message : "Transaction failed";
+        throw new Error(message);
+      }
     }),
 });
